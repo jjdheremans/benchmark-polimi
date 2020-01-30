@@ -16,7 +16,7 @@ fz = 0.1;       % [Hz]
 ft = 0.278;     % [Hz]
 
 rho = 1.22 ;    % [kg/m3]
-U_mat = [70];%,30,45,60,70] ; % [m/s]
+U_mat = [15];%,30,45,60,70] ; % [m/s]
 Iw = 0.05 ;     % [-]
 Lw = 20 ;       % [m]
 typspec = 1 ;   % VK Spectrum
@@ -39,10 +39,10 @@ fmax = 1 / dt;                          % [Hz]
 fny = fmax / 2;                         % [Hz]
 
 Vs = @(f) 1./f ;
-J0 = @(f) besselj(0, f);
-J1 = @(f) besselj(1, f);
-Y0 = @(f) bessely(0, f);
-Y1 = @(f) bessely(1, f);
+J0 = @(f) besselj(0, f*pi);
+J1 = @(f) besselj(1, f*pi);
+Y0 = @(f) bessely(0, f*pi);
+Y1 = @(f) bessely(1, f*pi);
 F =  @(f) (J1(f) .* (J1(f) + Y0(f)) + Y1(f) .* (Y1(f) - J0(f))) ./ ((J1(f) + Y0(f)).^2 + (Y1(f) - J0(f)).^2);
 G =  @(f) -(J1(f) .* J0(f) + Y1(f) .* Y0(f)) ./ ((J1(f) + Y0(f)).^2 + (Y1(f) - J0(f)).^2);
 
@@ -69,7 +69,7 @@ Fse1_fun = @(f,U) - 1/2 * rho * U^2 * B * [h{1}(f)/U h{2}(f)*B/U ; a{1}(f)*B/U a
 Fse2_fun = @(f,U)   1/2 * rho * U^2 * B * [2*pi^3*h{4}(f)./(B*Vs(f)^2) h{3}(f) ; 2*pi^3*a{4}(f)./(Vs(f)^2)  a{3}(f)*B ] ;
 
 % Buffetting force
-A = @(f) 2 ./ (7 * f)^2 .* (7 * f - 1 + exp(-7 * f));
+A = @(f) 2 ./ (7 * f).^2 .* (7 * f - 1 + exp(-7 * f));
 X = @(f,U) ( 0.5 * rho * U * B ) * [2*pi pi/2*B].*A(f) ;
 Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
 
@@ -153,9 +153,6 @@ for looper = 1 : length(U_mat )
     xlim([0 50])
     legend show
     grid on
-    
-    
-
     
     figure 
     fplot(A,[0 10]); hold on
