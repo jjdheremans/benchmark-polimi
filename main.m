@@ -70,12 +70,12 @@ Fse2_fun = @(f,U)   1/2 * rho * U^2 * B * [2*pi^3*h{4}(f)./(B*Vs(f)^2) h{3}(f) ;
 
 % Buffetting force
 A = @(f) 2 ./ (7 * f).^2 .* (7 * f - 1 + exp(-7 * f));
-X = @(f,U) ( 0.5 * rho * U * B ) * [2*pi pi/2*B].*A(f) ;
+X = @(f,U) ( 0.5 * rho * U * B ) * [2*pi; pi/2*B].*A(f) ;
 Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
 
 
 %% LOOP ON AVG Wind speeds
-fs = linspace(0.01, fny, nvalues); % [Hz]
+fs = linspace(0.001, 3, nvalues); % [Hz]
 
 for looper = 1 : length(U_mat )
     
@@ -97,19 +97,16 @@ for looper = 1 : length(U_mat )
         freq = fs(i) ;
         H(:,:,i) = inv( HM1(freq) );
         Sx(:, :, i) = H(:,:,i) * Sq(freq, uliege) * conj(transpose(H(:,:,i))) ;
-        if ( imag( sum (sum(H(:,:,i) ) ) ) > 0.01 )  
-            printf('Y EAN A UN ZARMAAA ')
-        end
     end
-
+    Sx = real( Sx ) ;
 
     %% Graphical Representation
     fig = figure ;
-    hold on 
     strings = cell(size(Sx,1)*size(Sx,2),1) ;
     for i = 1 : size( Sx, 1) 
         for j = 1 : size( Sx, 2) 
-            plot( fs, squeeze(Sx(i,j,:)) )
+            semilogy( fs, squeeze(Sx(i,j,:)),'LineWidth',1.5 )
+            hold on 
             index = sub2ind([size(Sx,1), size(Sx,2)],i,j) ;
             strings{index} = sprintf('Sx: i=%d, j=%d',i,j) ;
         end
