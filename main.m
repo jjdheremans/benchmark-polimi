@@ -23,7 +23,7 @@ typspec = 1 ;   % VK Spectrum
 
 % Time/Frequency discretization
 tmax = 600 ;    % [s]
-nvalues = 2^13 ; 
+nvalues = 2^10 ; 
 
 %% Definition of wind PSD
 sigmaw = @(U) Iw * U ;    % [m/s]
@@ -80,34 +80,38 @@ fs = linspace(0.001, 3, nvalues); % [Hz]
 for looper = 1 : length(U_mat )
     
     uliege = U_mat(looper) ;
+    Sx = struct( 'mod', zeros(2, 2, nvalues), 'nod', zeros(2, 2, nvalues) ) ;
+    %% Modal Analysis 
+    
 
-    %% Modal Analysis
-    [phi, ev] = eig(K, M);
-    phi = phi ./ max(phi,[],1) ;
-    if ( ~prod(diag(ev) - (2*pi*([fz ft].')).^2 < 1e-03 ) ) % Are the EV well recovered?
-        fprintf('Assertion failed: the initial eigen values haven''t been recovered\n')
-        return
-    end
-    Ms = phi' * M * phi;
-    Cs = phi' * C * phi;
-    Ks = phi' * K * phi;
-    HM1 = @(f) (-Ms * (2 * pi * f).^2 + 1i * 2 * pi * f * (Cs - Fse1_fun(f, uliege)) + (Ks - Fse2_fun(f, uliege)));
-    Sx = zeros(2, 2, nvalues);
+    HM1 = @(f) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * (C - Fse1_fun(f, uliege)) + (K - Fse2_fun(f, uliege)));
+    evsto = zeros(2, nvalues);
+    emsto = zeros(2, 2, nvalues);
+    
     for i = 1 : length( fs )
         freq = fs(i) ;
-        H(:,:,i) = inv( HM1(freq) );
-        Sx(:, :, i) = H(:,:,i) * Sq(freq, uliege) * conj(transpose(H(:,:,i))) ;
+        Meq = M ;
+        Ceq = ( C - Fse1_fun(freq, uliege) ) ;
+        Keq = ( K - Fse2_fun(freq, uliege) ) ;
+        [phi, ev] = eig( Keq, Meq );
+        phi = phi ./ max(phi,[],1) ;
+        evsto(:,i) = sqrt(diag(ev))/(2*pi) ;
+        emsto(:,:,i) = phi ;
+        H(:,:) = inv( HM1(freq) );
+        Sx.mod(:, :, i) = H * Sq(freq, uliege) * H' ;
+        Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
     end
-    Sx = real( Sx ) ;
+    Sx.mod = real( Sx.mod ) ;
+    Sx.nod = real( Sx.nod ) ;
 
     %% Graphical Representation
     fig = figure ;
-    strings = cell(size(Sx,1)*size(Sx,2),1) ;
-    for i = 1 : size( Sx, 1) 
-        for j = 1 : size( Sx, 2) 
-            semilogy( fs, squeeze(Sx(i,j,:)),'LineWidth',1.5 )
+    strings = cell(size(Sx.mod,1)*size(Sx.mod,2),1) ;
+    for i = 1 : size( Sx.mod, 1) 
+        for j = 1 : size( Sx.mod, 2) 
+            semilogy( fs, squeeze(Sx.mod(i,j,:)),'LineWidth',1.5 )
             hold on 
-            index = sub2ind([size(Sx,1), size(Sx,2)],i,j) ;
+            index = sub2ind([size(Sx.mod,1), size(Sx.mod,2)],i,j) ;
             strings{index} = sprintf('Sx: i=%d, j=%d',i,j) ;
         end
     end
@@ -155,5 +159,6 @@ for looper = 1 : length(U_mat )
     fplot(A,[0 10]); hold on
     title('Admittance A(f*)')
     grid on
+    
 
 end
