@@ -17,6 +17,7 @@ ft = 0.278;     % [Hz]
 
 rho = 1.22 ;    % [kg/m3]
 U_mat = [15];%,30,45,60,70] ; % [m/s]
+wMax = zeros( size(U_mat) ) ;
 Iw = 0.05 ;     % [-]
 Lw = 20 ;       % [m]
 typspec = 1 ;   % VK Spectrum
@@ -82,27 +83,45 @@ for looper = 1 : length(U_mat )
     uliege = U_mat(looper) ;
     Sx = struct( 'mod', zeros(2, 2, nvalues), 'nod', zeros(2, 2, nvalues) ) ;
     %% Modal Analysis 
-    
-
-    HM1 = @(f) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * (C - Fse1_fun(f, uliege)) + (K - Fse2_fun(f, uliege)));
+    Meq = M ;
+    Ceq_fun = @(f,U) ( C - Fse1_fun(f,U) ) ;
+    Keq_fun = @(f,U) ( K - Fse2_fun(f,U) ) ;
+    HM1 = @(f) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * Ceq(f, uliege) + Keq(f, uliege));
     evsto = zeros(2, nvalues);
     emsto = zeros(2, 2, nvalues);
-    
-    for i = 1 : length( fs )
-        freq = fs(i) ;
-        Meq = M ;
-        Ceq = ( C - Fse1_fun(freq, uliege) ) ;
-        Keq = ( K - Fse2_fun(freq, uliege) ) ;
-        [phi, ev] = eig( Keq, Meq );
-        phi = phi ./ max(phi,[],1) ;
-        evsto(:,i) = sqrt(diag(ev))/(2*pi) ;
-        emsto(:,:,i) = phi ;
-        H(:,:) = inv( HM1(freq) );
-        Sx.mod(:, :, i) = H * Sq(freq, uliege) * H' ;
-        Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
+
+        
+    tol = 1e-3 ;
+    for mode = 1 : 2
+        if mode == 1
+            freq = fz ;
+            em_im1 = [1 ; 0] ;
+        elseif mode == 2
+            freq = ft ; 
+            em_im1 = [0 ; 1] ;
+        end
+        Keq = Keq_fun( freq, uliege ) ;
+        res = 10 ; 
+        while res > tol
+            [em,ev] = eig( Keq, Meq ) ;
+            [~,index]= max( sum(em.*[em_im1,em_im1],1) ) ;
+            ev = ev(index,index) ;
+            freq =  sqrt(ev) / ( 2 * pi ) ;
+            Keq = Keq_fun( freq, uliege ) ;
+            em_im1 = em(:,index) ;
+            res = sum( (Keq - ev^2 * Meq ) * em_im1 ) ;
+        end
     end
-    Sx.mod = real( Sx.mod ) ;
-    Sx.nod = real( Sx.nod ) ;
+        
+%     H(:,:) = inv( HM1(freq) );
+%     Sx.mod(:, :, i) = H * Sq(freq, uliege) * H' ;
+%     Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
+%    
+%     Sx.mod = real( Sx.mod ) ;
+%     Sx.nod = real( Sx.nod ) ;
+%      Sx.nod
+%     [~,wMax(i,:)] = findpeaks( Sx.nod, fs ) ; 
+    
 
     %% Graphical Representation
     fig = figure ;
@@ -117,8 +136,8 @@ for looper = 1 : length(U_mat )
     end
     legend(strings, 'interpreter','latex')
     grid on 
-    xlabel('Frequences [Hz]', 'FontSize',12)
-    ylabel('PSD [m^2/s^3]', 'FontSize',12)
+    xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
+    ylabel('PSD [m$^2$/s$^3$]', 'FontSize',12, 'interpreter','latex')
     ttitle = sprintf('Wind Speed: %d [m/s]', uliege ) ;
     title( ttitle )
     
