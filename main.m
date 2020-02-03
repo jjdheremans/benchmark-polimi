@@ -11,16 +11,15 @@ ml = 22740;     % [kg/m]
 Jl = 2.47e+06;  % [kgm2/m]
 
 B = 31;         % [m]
-xi = 3e-3;      % [-]
+xi = 0.003;     % [-]
 fz = 0.1;       % [Hz]
 ft = 0.278;     % [Hz]
 
-rho = 1.22 ;    % [kg/m3]
-U_mat = linspace(15,81,50) ; % [m/s]
-wMax = zeros( size(U_mat) ) ;
-Iw = 0.05 ;     % [-]
-Lw = 20 ;       % [m]
-typspec = 1 ;   % VK Spectrum
+rho = 1.22 ;                    % [kg/m3]
+U_mat = linspace(15,80,300) ;   % [m/s]
+Iw = 0.05 ;                     % [-]
+Lw = 20 ;                       % [m]
+typspec = 1 ;                   % VK Spectrum
 
 % Time/Frequency discretization
 tmax = 600 ;    % [s]
@@ -44,13 +43,13 @@ J0 = @(f) besselj(0, f*pi);
 J1 = @(f) besselj(1, f*pi);
 Y0 = @(f) bessely(0, f*pi);
 Y1 = @(f) bessely(1, f*pi);
-F =  @(f) (J1(f) .* (J1(f) + Y0(f)) + Y1(f) .* (Y1(f) - J0(f))) ./ ((J1(f) + Y0(f)).^2 + (Y1(f) - J0(f)).^2);
+F =  @(f)  (J1(f) .* (J1(f) + Y0(f)) + Y1(f) .* (Y1(f) - J0(f))) ./ ((J1(f) + Y0(f)).^2 + (Y1(f) - J0(f)).^2);
 G =  @(f) -(J1(f) .* J0(f) + Y1(f) .* Y0(f)) ./ ((J1(f) + Y0(f)).^2 + (Y1(f) - J0(f)).^2);
 
 % Mass/Stiffness/Damping system matrices
 M = diag([ml, Jl]) ;
-C = 4*pi*xi*M*diag([fz, ft]) ;
-K = 4*pi^2*M*diag([fz, ft].^2) ;
+C = 4*pi*xi*M.*diag([fz, ft]) ;
+K = 4*pi^2*M.*diag([fz, ft].^2) ;
 
 % determination of flutter derivatives 
 h = cell(4, 1);
@@ -77,8 +76,9 @@ Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
 
 %% LOOP ON AVG Wind speeds
 fs = linspace(0.001, 3, nvalues); % [Hz]
-tol = 1e-3 ;
+tol = 1e-5 ;
 freqSto = zeros( 2, length(U_mat ) ) ;
+A = zeros(4);
 
 fig1 = figure ;  hold on ;
 
@@ -88,6 +88,7 @@ for looper = 1 : length(U_mat )
     Sx = struct( 'mod', zeros(2, 2, nvalues), 'nod', zeros(2, 2, nvalues) ) ;
     %% Modal Analysis 
     Meq = M ;
+    Meqm1 = inv( Meq ) ;
     Ceq_fun = @(f,U) ( C - Fse1_fun(f,U) ) ;
     Keq_fun = @(f,U) ( K - Fse2_fun(f,U) ) ;
     HM1 = @(f) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * Ceq(f, uliege) + Keq(f, uliege));
@@ -100,23 +101,48 @@ for looper = 1 : length(U_mat )
         if mode == 1
             freq = fz ;
             em_im1 = [1 ; 0] ;
+            if looper == 1
+                ev_im1 = 4* pi^2*fz^2 ;
+            end
+%             fprintf('\n\nNew iteration\n')
         elseif mode == 2
             freq = ft ; 
             em_im1 = [0 ; 1] ;
+            if looper == 1
+                ev_im1 = 4* pi^2*ft^2 ;
+            end
         end
         Keq = Keq_fun( freq, uliege ) ;
+        Ceq = Ceq_fun( freq, uliege ) ;
+        A(:,:) = [ zeros(2) eye(2) ; - Meqm1*Keq -Meqm1*Ceq ] ;
         cdt = 0 ; 
         while cdt~=1
-            [em,ev] = eig( Keq, Meq ) ;
-            em = em ./ max( abs(em) ) ;
-            [~,index]= max( sum(em.*[em_im1,em_im1],1) ) ;
+            [em,evc] = eig( A ) ;
+%             em = em ./ max( abs(em) ) ;
+            % condition imposed on scalar product of eigen modes. -> does
+            % not behave very stably for high wind velocities.
+%             [~,index]= max( sum( em.*[em_im1,em_im1],1) ) ;
+%             [~,index]= max( [sum(em(:,1).*em_im1),sum(em(:,2).*em_im1)] );
+            % condition imposed on continuity of eigen frequencies
+            % evolution
+            
+%             if mode == 1 
+%             toprint = diag(ev) - ev_im1 k
+%             if imag( sum(sum(ev(1,1))) ) > 0 
+%                 fprintf('coucou')
+%             end
+%             end
+            xis = imag( evc ) ./ abs( diag(evc) ) ;
+            ev = real( evc ) ;
+            [~,index] = min ( abs ( diag(ev) - ev_im1 ) ) ; 
             ev = ev(index,index) ;
             freq =  sqrt(ev) / ( 2 * pi ) ;
             Keq = Keq_fun( freq, uliege ) ;
+            Ceq = Ceq_fun( freq, uliege ) ;
             em_im1 = em(:,index) ;
+            ev_im1 = ev ;
             abstol = tol*abs( mean( Keq(mode,:) - ev * Meq(mode,:) ) )  ;
-%             toprint =  abs( (Keq - ev * Meq ) * em_im1 )
-            cdt = sum( abs( (Keq - ev * Meq ) * em_im1 ) < abstol ) / 2  ;
+            cdt = sum( abs( (A - evc(index,index)*1i*eye(4) ) * em_im1 ) < abstol ) / 2  ;
         end
         freqSto(mode,looper) = freq ;
     end
