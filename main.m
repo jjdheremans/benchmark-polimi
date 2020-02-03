@@ -4,6 +4,12 @@ clear all
 close all
 clc
 
+%% Graph Ouput:
+plotPSD = false ;   % plot of PSDs
+plotAdm = false ;   % plot of admittance function
+plotfde = false ;   % plot of fractional derivatives
+plotFEG = false ;   % plot of theodorsen functions F and G
+plotfrq = true  ;   % plot of eigen frequencies evolution with resp. to U
 
 %% Input parameters
 % Geometry/Material
@@ -16,7 +22,7 @@ fz = 0.1;       % [Hz]
 ft = 0.278;     % [Hz]
 
 rho = 1.22 ;                    % [kg/m3]
-U_mat = linspace(15,80,300) ;   % [m/s]
+U_mat = linspace(0.001,100,50) ;% [m/s]
 Iw = 0.05 ;                     % [-]
 Lw = 20 ;                       % [m]
 typspec = 1 ;                   % VK Spectrum
@@ -76,17 +82,22 @@ Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
 
 %% LOOP ON AVG Wind speeds
 fs = linspace(0.001, 3, nvalues); % [Hz]
-tol = 1e-5 ;
+tol = 1e-10 ;
 freqSto = zeros( 2, length(U_mat ) ) ;
 A = zeros(4);
+ev_im1(1) = 4* pi^2*fz^2 * ( 1 + 1i / sqrt( 1 - 0.003^2 ) ) ;
+ev_im1(2) = 4* pi^2*ft^2  * ( 1 + 1i / sqrt( 1 - 0.003^2 ) );
 
-fig1 = figure ;  hold on ;
+if plotPSD
+    fig1 = figure ;  hold on ;
+end
 
 for looper = 1 : length(U_mat )
     
     uliege = U_mat(looper) ;
     Sx = struct( 'mod', zeros(2, 2, nvalues), 'nod', zeros(2, 2, nvalues) ) ;
-    %% Modal Analysis 
+    
+    % Modal Analysis 
     Meq = M ;
     Meqm1 = inv( Meq ) ;
     Ceq_fun = @(f,U) ( C - Fse1_fun(f,U) ) ;
@@ -98,26 +109,24 @@ for looper = 1 : length(U_mat )
         
     % Evolution of eigen frequencies with respect to avg wind speeds U
     for mode = 1 : 2
+        fprintf('ndj')
+        eyevec = zeros(1,4) ;
+        eyevec(mode+2) = 1 ;
         if mode == 1
             freq = fz ;
-            em_im1 = [1 ; 0] ;
-            if looper == 1
-                ev_im1 = 4* pi^2*fz^2 ;
-            end
-%             fprintf('\n\nNew iteration\n')
+            em_im1 = [1 ; 0 ; 0 ; 0] ;
         elseif mode == 2
             freq = ft ; 
-            em_im1 = [0 ; 1] ;
-            if looper == 1
-                ev_im1 = 4* pi^2*ft^2 ;
-            end
+            em_im1 = [0 ; 0; 0 ; 1] ;
         end
+        
         Keq = Keq_fun( freq, uliege ) ;
         Ceq = Ceq_fun( freq, uliege ) ;
         A(:,:) = [ zeros(2) eye(2) ; - Meqm1*Keq -Meqm1*Ceq ] ;
         cdt = 0 ; 
         while cdt~=1
             [em,evc] = eig( A ) ;
+            evc = evc / 1i ;
 %             em = em ./ max( abs(em) ) ;
             % condition imposed on scalar product of eigen modes. -> does
             % not behave very stably for high wind velocities.
@@ -125,24 +134,18 @@ for looper = 1 : length(U_mat )
 %             [~,index]= max( [sum(em(:,1).*em_im1),sum(em(:,2).*em_im1)] );
             % condition imposed on continuity of eigen frequencies
             % evolution
-            
-%             if mode == 1 
-%             toprint = diag(ev) - ev_im1 k
-%             if imag( sum(sum(ev(1,1))) ) > 0 
-%                 fprintf('coucou')
-%             end
-%             end
             xis = imag( evc ) ./ abs( diag(evc) ) ;
             ev = real( evc ) ;
-            [~,index] = min ( abs ( diag(ev) - ev_im1 ) ) ; 
+            [~,index] = min ( abs ( diag(ev) - ev_im1(mode) ) ) ; 
             ev = ev(index,index) ;
             freq =  sqrt(ev) / ( 2 * pi ) ;
             Keq = Keq_fun( freq, uliege ) ;
             Ceq = Ceq_fun( freq, uliege ) ;
-            em_im1 = em(:,index) ;
-            ev_im1 = ev ;
-            abstol = tol*abs( mean( Keq(mode,:) - ev * Meq(mode,:) ) )  ;
-            cdt = sum( abs( (A - evc(index,index)*1i*eye(4) ) * em_im1 ) < abstol ) / 2  ;
+            A(:,:) = [ zeros(2) eye(2) ; - Meqm1*Keq -Meqm1*Ceq ] ;
+%             em_im1 = em(:,index) ;
+            ev_im1(mode) = ev ;
+            abstol = tol*abs( mean( A(mode,:) - evc(index,index)*eyevec ) )  ;
+            cdt = sum( abs( (A - evc(index,index)*1i*eye(4) ) * em(:,index) ) < abstol ) / 4  ;
         end
         freqSto(mode,looper) = freq ;
     end
@@ -159,20 +162,19 @@ for looper = 1 : length(U_mat )
     
 
     %% Graphical Representation
-    
-    % Plot of Nodal PSDs
-    figure(fig1) ;
-%     strings = cell(size(Sx.mod,1)*size(Sx.mod,2),1) ;
-%     for i = 1 : size( Sx.mod, 1) 
-%         for j = 1 : size( Sx.mod, 2) 
-i = 1 ; j = 1 ;
-            semilogy( fs, squeeze(Sx.mod(i,j,:)),'LineWidth',1.5 )
-            hold on 
-            index = sub2ind([size(Sx.mod,1), size(Sx.mod,2)],i,j) ;
-%             strings{index} = sprintf('Sx: i=%d, j=%d',i,j) ;
-%         end
-%     end
-    
+    if plotPSD
+        % Plot of Nodal PSDs
+        figure(fig1) ;
+        strings = cell(size(Sx.mod,1)*size(Sx.mod,2),1) ;
+        for i = 1 : size( Sx.mod, 1) 
+            for j = 1 : size( Sx.mod, 2) 
+                semilogy( fs, squeeze(Sx.mod(i,j,:)),'LineWidth',1.5 )
+                hold on 
+                index = sub2ind([size(Sx.mod,1), size(Sx.mod,2)],i,j) ;
+                strings{index} = sprintf('Sx: i=%d, j=%d',i,j) ;
+            end
+        end
+    end
 
 end
 
@@ -180,67 +182,76 @@ end
 %% Graphical post-processing
 
 % Annotation of fig1
-figure(fig1) ; grid on
-% legend(strings, 'interpreter','latex')
-xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
-ylabel('PSD [m$^2$/s$^3$]', 'FontSize',12, 'interpreter','latex')
+if plotPSD
+    figure(fig1) ; grid on
+    % legend(strings, 'interpreter','latex')
+    xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
+    ylabel('PSD [m$^2$/s$^3$]', 'FontSize',12, 'interpreter','latex')
+end
     
 
 % Annotation of fig2
-fig2 = figure ; grid on ; hold on
-plot( U_mat, freqSto(1,:), '*-' )
-plot( U_mat, freqSto(2,:), '*-' )  
-legend({'Mode 1','Mode 2'}, 'interpreter','latex','FontSize',12)
-xlabel('Avg. Wind Speed $U$ [m/s]', 'FontSize',12, 'interpreter','latex')
-ylabel('Eigen Frequencies $f_i$ [Hz]', 'FontSize',12, 'interpreter','latex')
-ylim([0 0.30])
+if plotfrq
+    fig2 = figure ; grid on ; hold on
+    plot( U_mat, freqSto(1,:), '*-' )
+    plot( U_mat, freqSto(2,:), '*-' )  
+    legend({'Mode 1','Mode 2'}, 'interpreter','latex','FontSize',12)
+    xlabel('Avg. Wind Speed $U$ [m/s]', 'FontSize',12, 'interpreter','latex')
+    ylabel('Eigen Frequencies $f_i$ [Hz]', 'FontSize',12, 'interpreter','latex')
+    ylim([0 0.30])
+end
 
 % Plot of Theodorsen functions F and G
-figure 
-fplot(F); hold on
-fplot(G);
-xlabel('$f^*$ [Hz]','interpreter','latex','FontSize',12)
-ylabel('$F(f^*)$ and $G(f^*)$','interpreter','latex','FontSize',12)
-legend({'$F(f^*)$','$G(f^*)$'},'interpreter','latex','FontSize',12)
-grid on
-for kk = 1:length(fs)
-    for k = 1:length(a)
-        aa(k,kk) = a{k}(fs(kk));
-        hh(k,kk) = h{k}(fs(kk));
+if plotFEG
+    figure 
+    fplot(F); hold on
+    fplot(G);
+    xlabel('$f^*$ [Hz]','interpreter','latex','FontSize',12)
+    ylabel('$F(f^*)$ and $G(f^*)$','interpreter','latex','FontSize',12)
+    legend({'$F(f^*)$','$G(f^*)$'},'interpreter','latex','FontSize',12)
+    grid on
+    for kk = 1:length(fs)
+        for k = 1:length(a)
+            aa(k,kk) = a{k}(fs(kk));
+            hh(k,kk) = h{k}(fs(kk));
+        end
     end
 end
 
 
 % Plot of flutter derivatives h_i and a_i
-figure 
-subplot(2,1,1)
-for jj = 1:size(hh,1)
-    plot(Vs(fs),hh(jj,:),'DisplayName',['h_',num2str(jj)]); hold on
+if plotfde
+    figure 
+    subplot(2,1,1)
+    for jj = 1:size(hh,1)
+        plot(Vs(fs),hh(jj,:),'DisplayName',['h_',num2str(jj)]); hold on
+    end
+    title('Flutter derivatives $h_i$', 'interpreter','latex','FontSize',12)
+    xlabel('V* [Hz$^{-1}$]', 'interpreter','latex','FontSize',12)
+    xlim([0 50])
+    legend show
+    grid on
+    subplot(2,1,2)
+    for ii = 1:size(aa,1)
+        plot(Vs(fs),aa(ii,:),'DisplayName',['a_',num2str(ii)]); hold on
+    end
+    title('Flutter derivatives $a_i$', 'interpreter','latex','FontSize',12)
+    xlabel('V* [Hz$^{-1}$]', 'interpreter','latex','FontSize',12)
+    xlim([0 50])
+    legend show
+    grid on 
 end
-title('Flutter derivatives $h_i$', 'interpreter','latex','FontSize',12)
-xlabel('V* [Hz$^{-1}$]', 'interpreter','latex','FontSize',12)
-xlim([0 50])
-legend show
-grid on
-subplot(2,1,2)
-for ii = 1:size(aa,1)
-    plot(Vs(fs),aa(ii,:),'DisplayName',['a_',num2str(ii)]); hold on
-end
-title('Flutter derivatives $a_i$', 'interpreter','latex','FontSize',12)
-xlabel('V* [Hz$^{-1}$]', 'interpreter','latex','FontSize',12)
-xlim([0 50])
-legend show
-grid on
 
 
-% Plot of admittance function
-figure 
-hold on
-fplot(A,[0 10]); 
-ylabel('Admittance A(f*)', 'interpreter','latex','FontSize',12)
-xlabel('$f^*$ [Hz]', 'interpreter','latex','FontSize',12)
-grid on
-
+% % Plot of admittance function
+% if plotAdm
+%     figure 
+%     hold on
+%     fplot(A,[0 10]); 
+%     ylabel('Admittance A(f*)', 'interpreter','latex','FontSize',12)
+%     xlabel('$f^*$ [Hz]', 'interpreter','latex','FontSize',12)
+%     grid on
+% end
 
 
 
