@@ -17,7 +17,7 @@ ml = 22740;     % [kg/m]
 Jl = 2.47e+06;  % [kgm2/m]
 
 B = 31;         % [m]
-xi = 0.003;     % [-]
+xi = 0;%0.003;     % [-]
 fz = 0.1;       % [Hz]
 ft = 0.278;     % [Hz]
 
@@ -82,7 +82,7 @@ Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
 
 %% LOOP ON AVG Wind speeds
 fs = linspace(0.001, 3, nvalues); % [Hz]
-tol = 1e-10 ;
+tol = 1e-6 ;
 freqSto = zeros( 2, length(U_mat ) ) ;
 A = zeros(4);
 ev_im1(1) = 4* pi^2*fz^2 * ( 1 + 1i / sqrt( 1 - 0.003^2 ) ) ;
@@ -108,10 +108,12 @@ for looper = 1 : length(U_mat )
 
         
     % Evolution of eigen frequencies with respect to avg wind speeds U
+    counter = 0 ;
     for mode = 1 : 2
-        fprintf('ndj')
+        fprintf('Mode: %d, It. Counter: %d\n',mode,counter)
+        counter = 0 ;
         eyevec = zeros(1,4) ;
-        eyevec(mode+2) = 1 ;
+        eyevec(mode) = 1 ;
         if mode == 1
             freq = fz ;
             em_im1 = [1 ; 0 ; 0 ; 0] ;
@@ -122,30 +124,28 @@ for looper = 1 : length(U_mat )
         
         Keq = Keq_fun( freq, uliege ) ;
         Ceq = Ceq_fun( freq, uliege ) ;
-        A(:,:) = [ zeros(2) eye(2) ; - Meqm1*Keq -Meqm1*Ceq ] ;
+        A(:,:) = [ zeros(2) eye(2) ; -Meqm1*Keq -Meqm1*Ceq ] ;
         cdt = 0 ; 
         while cdt~=1
-            [em,evc] = eig( A ) ;
-            evc = evc / 1i ;
-%             em = em ./ max( abs(em) ) ;
+            [em,evc,~] = polyeig(Keq,Ceq,Meq) ;
+%             evc = evc / 1i ;
             % condition imposed on scalar product of eigen modes. -> does
             % not behave very stably for high wind velocities.
 %             [~,index]= max( sum( em.*[em_im1,em_im1],1) ) ;
 %             [~,index]= max( [sum(em(:,1).*em_im1),sum(em(:,2).*em_im1)] );
             % condition imposed on continuity of eigen frequencies
-            % evolution
+            % evolution²
             xis = imag( evc ) ./ abs( diag(evc) ) ;
             ev = real( evc ) ;
-            [~,index] = min ( abs ( diag(ev) - ev_im1(mode) ) ) ; 
-            ev = ev(index,index) ;
+            [~,index] = min ( abs ( ev - ev_im1(mode) ) ) ; 
+            ev = ev(index) ;
             freq =  sqrt(ev) / ( 2 * pi ) ;
             Keq = Keq_fun( freq, uliege ) ;
             Ceq = Ceq_fun( freq, uliege ) ;
-            A(:,:) = [ zeros(2) eye(2) ; - Meqm1*Keq -Meqm1*Ceq ] ;
-%             em_im1 = em(:,index) ;
             ev_im1(mode) = ev ;
-            abstol = tol*abs( mean( A(mode,:) - evc(index,index)*eyevec ) )  ;
-            cdt = sum( abs( (A - evc(index,index)*1i*eye(4) ) * em(:,index) ) < abstol ) / 4  ;
+            abstol = 1e-12 ;
+            cdt = sum( abs( ( Meq*ev^2+Ceq*ev+Keq )*em(:,index) ) < abstol ) / 2 ;
+            counter = counter + 1 ;
         end
         freqSto(mode,looper) = freq ;
     end
@@ -243,15 +243,15 @@ if plotfde
 end
 
 
-% % Plot of admittance function
-% if plotAdm
-%     figure 
-%     hold on
-%     fplot(A,[0 10]); 
-%     ylabel('Admittance A(f*)', 'interpreter','latex','FontSize',12)
-%     xlabel('$f^*$ [Hz]', 'interpreter','latex','FontSize',12)
-%     grid on
-% end
+% Plot of admittance function
+if plotAdm
+    figure 
+    hold on
+    fplot(A,[0 10]); 
+    ylabel('Admittance A(f*)', 'interpreter','latex','FontSize',12)
+    xlabel('$f^*$ [Hz]', 'interpreter','latex','FontSize',12)
+    grid on
+end
 
 
 
