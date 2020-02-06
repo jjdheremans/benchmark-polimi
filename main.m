@@ -6,10 +6,11 @@ clc
 
 %% Graph Ouput:
 
-NbPlots = 5 ;       % Number of U to display
+NbPlots = 10 ;       % Number of U to display
 
 plotPSD = true  ;   % plot of PSDs
 plotFRF = true  ;   % plot of FRFs
+plotSTD = true  ;   % plot of Standard Deviation
 plotAdm = false ;   % plot of admittance function
 plotfde = false ;   % plot of fractional derivatives
 plotFEG = false ;   % plot of theodorsen functions F and G
@@ -112,8 +113,10 @@ if plotPSD
     fig1 = figure ;         
 end
 
+varvalues = zeros(2,2,length(U_mat) ) ;
 freqSto = zeros( 2, length(U_mat ) ) ;
 xiSto   = zeros( 2, length(U_mat) ) ;
+ev_im1 = zeros(  2, 1 ) ;
 strings = cell(NbPlots,1) ;
 plotcounter = 1 ; indexPlot = round( linspace(1,nUvalues,NbPlots) ) ;
 
@@ -157,24 +160,23 @@ for looper = 1 : length(U_mat )
     end
    
     % PSD
-    f_vec = linspace(0.001, 0.5, 200); % [Hz]    
+    f_vec = linspace(0.0001, 5, 500); % [Hz]    
     for i = 1 : length( f_vec ) 
         f = f_vec(i) ;
         fs = f * B/uliege ;
         Keq = Keq_fun( fs, uliege ) ;
         Ceq = Ceq_fun( fs, uliege ) ;
-        [phi,e] = polyeig(Keq,1i*Ceq,-Meq) ; 
-        [~,ind] = min( abs( e - 2*pi*freqSto(:,looper).' ) ) ;
-        phi = phi( : , ind(1,:) ) ;
         H(:,:) = HM1( f, uliege)\eye(2);
         Sx.mod(:, :, i) = H * Sq(f, uliege) * H' ;
-        Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
         HH(:,:,i) = H ;
         Sx.mod = real( Sx.mod ) ;
-        Sx.nod = real( Sx.nod ) ;
     end
-    stdvalues.nod1(looper,:) = sqrt( trapz( f_vec, squeeze(Sx.nod(1,1,:)) ).' ) ;
-    stdvalues.nod2(looper,:) = sqrt( trapz( f_vec, squeeze(Sx.nod(2,2,:)) ).' ) ;
+    
+    for ii = 1 : 2 
+        for jj = 1 : 2
+            varvalues(ii,jj,looper) = trapz( f_vec, squeeze(Sx.mod(ii,jj,:)) ) ;
+        end 
+    end
     
     %% Graphical Representation
     
@@ -210,10 +212,6 @@ for looper = 1 : length(U_mat )
 
 end
 
-% semilogy (f_vec, (squeeze( Sx.nod(1,1,:))) ) 
-% semilogy (f_vec, (squeeze( Sx.nod(2,2,:))) ) 
-% plot(f_vec, abs(squeeze( HH(1,1,:))) ) 
-
 
 %% Graphical post-processing
 
@@ -244,20 +242,40 @@ if plotFRF
     xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
     ylabel('FRF $H(\omega)$ [s$^2$.kg$^{-1}$]', 'FontSize',12, 'interpreter','latex')
 end
-    
 
 % Annotation of fig2
 if plotfrq
     fig2 = figure ;
     grid on ; hold on
-    plot(  freqSto(1,:), '*-' )
-    plot(  freqSto(2,:), '*-' )  
-    plot(  xiSto(1,:), 'o-' )
-    plot(  xiSto(2,:), 'o-' )
+    plot( U_mat, freqSto(1,:), '*-' )
+    plot( U_mat, freqSto(2,:), '*-' )  
+    plot( U_mat, xiSto(1,:), 'o-' )
+    plot( U_mat, xiSto(2,:), 'o-' )
     legend({'$\omega_1$','$\omega_2$','$\xi_1$','$\xi_2$'}, 'interpreter','latex','FontSize',12)
     xlabel('Avg. Wind Speed $U$ [m/s]', 'FontSize',12, 'interpreter','latex')
     ylabel('Eigen Frequencies $f_i$ [Hz]', 'FontSize',12, 'interpreter','latex')
     ylim([0 0.30])
+end
+
+% Plot of standard deviation
+if plotSTD
+   figure ; 
+   hold on ;
+   grid on ;
+   for ii = 1 : 2
+       for jj = 1 : 2
+           if ii == jj && ii == 1
+                plot( U_mat, squeeze(sqrt(varvalues(ii,jj,:))), 'LineWidth',1.5)
+           elseif ii == jj && ii == 2
+                plot( U_mat, squeeze(sqrt(varvalues(ii,jj,:)))*B/2, 'LineWidth',1.5)
+           else
+               plot( U_mat, squeeze(varvalues(ii,jj,:)), 'LineWidth',1.5)
+           end
+       end
+   end
+   legend({'$\sigma_{x_{zz}}$', '$\sigma_{x_{zt}}$', '$\sigma_{x_{tz}}$', '$\sigma_{x_{tt}}*B/2$'},'interpreter','latex','location','nw')
+   xlabel('Frequencies [Hz]','interpreter','latex')
+   ylabel('Standard deviation - Co-variance','interpreter','latex')
 end
 
 % Plot of Theodorsen functions F and G
