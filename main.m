@@ -17,12 +17,12 @@ ml = 22740;     % [kg/m]
 Jl = 2.47e+06;  % [kgm2/m]
 
 B = 31;         % [m]
-xi = 0;%0.003;     % [-]
+xi = 0.003;     % [-]
 fz = 0.1;       % [Hz]
 ft = 0.278;     % [Hz]
 
 rho = 1.22 ;                    % [kg/m3]
-U_mat = linspace(0.001,100,50) ;% [m/s]
+U_mat = linspace(15,100,50) ;% [m/s]
 Iw = 0.05 ;                     % [-]
 Lw = 20 ;                       % [m]
 typspec = 1 ;                   % VK Spectrum
@@ -30,6 +30,8 @@ typspec = 1 ;                   % VK Spectrum
 % Time/Frequency discretization
 tmax = 600 ;    % [s]
 nvalues = 2^10 ; 
+
+
 
 %% Definition of wind PSD
 sigmaw = @(U) Iw * U ;    % [m/s]
@@ -79,88 +81,84 @@ A = @(f) 2 ./ (7 * f).^2 .* (7 * f - 1 + exp(-7 * f));
 X = @(f,U) ( 0.5 * rho * U * B ) * [2*pi; pi/2*B].*A(f) ;
 Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
 
+% Equivalent Stiffness/Damping/Mass Matrix
+Ceq_fun = @(f,U) ( C - Fse1_fun(f,U) ) ;
+Keq_fun = @(f,U) ( K - Fse2_fun(f,U) ) ;
+Meq = M ;
+Meqm1 = Meq\eye(2) ;
+
+% FRF Matrix
+HM1 = @(f,U) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * Ceq_fun(f,U) + Keq_fun(f,U)) ;
 
 %% LOOP ON AVG Wind speeds
-fs = linspace(0.001, 3, nvalues); % [Hz]
-tol = 1e-6 ;
-freqSto = zeros( 2, length(U_mat ) ) ;
-A = zeros(4);
-ev_im1(1) = 4* pi^2*fz^2 * ( 1 + 1i / sqrt( 1 - 0.003^2 ) ) ;
-ev_im1(2) = 4* pi^2*ft^2  * ( 1 + 1i / sqrt( 1 - 0.003^2 ) );
+tol = 1e-4 ;
+
 
 if plotPSD
     fig1 = figure ;  hold on ;
 end
 
+freqSto = zeros( 2, length(U_mat ) ) ;
+xiSto   = zeros( 2, length(U_mat) ) ;
+
 for looper = 1 : length(U_mat )
     
-    uliege = U_mat(looper) ;
-    Sx = struct( 'mod', zeros(2, 2, nvalues), 'nod', zeros(2, 2, nvalues) ) ;
     
-    % Modal Analysis 
-    Meq = M ;
-    Meqm1 = inv( Meq ) ;
-    Ceq_fun = @(f,U) ( C - Fse1_fun(f,U) ) ;
-    Keq_fun = @(f,U) ( K - Fse2_fun(f,U) ) ;
-    HM1 = @(f) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * Ceq(f, uliege) + Keq(f, uliege));
-    evsto = zeros(2, nvalues);
-    emsto = zeros(2, 2, nvalues);
-
-        
+    uliege = U_mat(looper) ;
+    
     % Evolution of eigen frequencies with respect to avg wind speeds U
     counter = 0 ;
     for mode = 1 : 2
-        fprintf('Mode: %d, It. Counter: %d\n',mode,counter)
         counter = 0 ;
-        eyevec = zeros(1,4) ;
-        eyevec(mode) = 1 ;
-        if mode == 1
-            freq = fz ;
-            em_im1 = [1 ; 0 ; 0 ; 0] ;
-        elseif mode == 2
-            freq = ft ; 
-            em_im1 = [0 ; 0; 0 ; 1] ;
+        if mode == 1 && looper ==1
+            ev_im1(mode) = 2*pi*fz ;
+        elseif mode == 2 && looper ==1
+            ev_im1(mode) = 2*pi*ft ; 
         end
-        
-        Keq = Keq_fun( freq, uliege ) ;
-        Ceq = Ceq_fun( freq, uliege ) ;
-        A(:,:) = [ zeros(2) eye(2) ; -Meqm1*Keq -Meqm1*Ceq ] ;
-        cdt = 0 ; 
-        while cdt~=1
-            [em,evc,~] = polyeig(Keq,Ceq,Meq) ;
-%             evc = evc / 1i ;
-            % condition imposed on scalar product of eigen modes. -> does
-            % not behave very stably for high wind velocities.
-%             [~,index]= max( sum( em.*[em_im1,em_im1],1) ) ;
-%             [~,index]= max( [sum(em(:,1).*em_im1),sum(em(:,2).*em_im1)] );
-            % condition imposed on continuity of eigen frequencies
-            % evolution²
-            xis = imag( evc ) ./ abs( diag(evc) ) ;
-            ev = real( evc ) ;
-            [~,index] = min ( abs ( ev - ev_im1(mode) ) ) ; 
-            ev = ev(index) ;
-            freq =  sqrt(ev) / ( 2 * pi ) ;
-            Keq = Keq_fun( freq, uliege ) ;
-            Ceq = Ceq_fun( freq, uliege ) ;
+        freq = ev_im1(mode) / ( 2*pi );
+        fs = freq*B/uliege ;
+        Keq = Keq_fun( fs, uliege ) ;
+        Ceq = Ceq_fun( fs, uliege ) ;
+        cdt = 0 ; counter = 0 ;
+        while cdt ~= 1 || counter > 10
+            [em,evc,~] = polyeig(Keq,1i*Ceq,-Meq) ;
+            [~,index] = min ( abs ( evc - ev_im1(mode) ) ) ; 
+            ev = evc(index) ;
+            freq =  (ev) / ( 2 * pi ) ;
+            fs = freq*B/uliege ;
+            Keq = Keq_fun( fs, uliege ) ;
+            Ceq = Ceq_fun( fs, uliege ) ;
+            abstol = tol * mean( abs( Meq(mode,:)*ev^2 + Ceq(mode,:)*ev + Keq(mode,:) ) ) ; 
+            cdt = sum( abs( ( -Meq*ev^2+1i*Ceq*ev+Keq ) * em(:,index) ) < abstol ) / 2 ;
             ev_im1(mode) = ev ;
-            abstol = 1e-12 ;
-            cdt = sum( abs( ( Meq*ev^2+Ceq*ev+Keq )*em(:,index) ) < abstol ) / 2 ;
             counter = counter + 1 ;
         end
-        freqSto(mode,looper) = freq ;
+        if counter > 10 
+            warning('Iterative procedure didn''t converge')
+        end
+        freqSto(mode,looper) = abs(freq) ;
+        xiSto(mode,looper) = imag( ev ) / abs( ev ) ;
     end
    
-        
-%     H(:,:) = inv( HM1(freq) );
-%     Sx.mod(:, :, i) = H * Sq(freq, uliege) * H' ;
-%     Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
-%    
-%     Sx.mod = real( Sx.mod ) ;
-%     Sx.nod = real( Sx.nod ) ;
-%      Sx.nod
-%     [~,wMax(i,:)] = findpeaks( Sx.nod, fs ) ; 
+    % PSD
+    fs_vec = linspace(0.001, 3, 100); % [Hz]    
+    for i = 1 : length( fs_vec ) 
+        fs = fs_vec(i) ;
+        Keq = Keq_fun( fs, uliege ) ;
+        Ceq = Ceq_fun( fs, uliege ) ;
+        [phi,e] = polyeig(Keq,1i*Ceq,-Meq) ; 
+        [~,ind] = min( abs( e - 2*pi*freqSto(:,looper).' ) ) ;
+        phi = phi( : , ind(1,:) ) ;
+        H(:,:) = HM1(fs, uliege)\eye(2);
+        Sx.mod(:, :, i) = H * Sq(fs, uliege) * H' ;
+        Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
+        HH(:,:,i) = H ;
+        Sx.mod = real( Sx.mod ) ;
+        Sx.nod = real( Sx.nod ) ;
+    end
+    stdvalues.nod1(looper,:) = sqrt( trapz( fs_vec, squeeze(Sx.mod(1,1,:)) ).' ) ;
+    stdvalues.nod2(looper,:) = sqrt( trapz( fs_vec, squeeze(Sx.mod(2,2,:)) ).' ) ;
     
-
     %% Graphical Representation
     if plotPSD
         % Plot of Nodal PSDs
@@ -178,7 +176,8 @@ for looper = 1 : length(U_mat )
 
 end
 
-
+figure
+plot (fs_vec, abs(squeeze(HH(1,1,:))) ) 
 %% Graphical post-processing
 
 % Annotation of fig1
