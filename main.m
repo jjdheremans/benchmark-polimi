@@ -5,7 +5,11 @@ close all
 clc
 
 %% Graph Ouput:
-plotPSD = false ;   % plot of PSDs
+
+NbPlots = 5 ;       % Number of U to display
+
+plotPSD = true  ;   % plot of PSDs
+plotFRF = true  ;   % plot of FRFs
 plotAdm = false ;   % plot of admittance function
 plotfde = false ;   % plot of fractional derivatives
 plotFEG = false ;   % plot of theodorsen functions F and G
@@ -21,11 +25,12 @@ xi = 0.003;     % [-]
 fz = 0.1;       % [Hz]
 ft = 0.278;     % [Hz]
 
-rho = 1.22 ;                    % [kg/m3]
-U_mat = linspace(15,100,50) ;% [m/s]
-Iw = 0.05 ;                     % [-]
-Lw = 20 ;                       % [m]
-typspec = 1 ;                   % VK Spectrum
+rho = 1.22 ;                            % [kg/m3]
+nUvalues = 50 ;                         % Nb of values for avg. speed U
+U_mat = linspace(15,100,nUvalues) ;     % [m/s]
+Iw = 0.05 ;                             % [-]
+Lw = 20 ;                               % [m]
+typspec = 1 ;                           % VK Spectrum
 
 % Time/Frequency discretization
 tmax = 600 ;    % [s]
@@ -36,7 +41,7 @@ nvalues = 2^10 ;
 %% Definition of wind PSD
 sigmaw = @(U) Iw * U ;    % [m/s]
 if typspec == 1 
-    Sw = @(f,U) sigmaw(U)^2./f.*( 4*f*Lw/U ) .* ( 1 + 755.2 * ( f* Lw / U).^2) ./ ( 1 + 283.2 * ( f* Lw / U).^2 ).^(11/6) ;
+    Sw = @(f,U) sigmaw(U)^2./f.*( 4*f*Lw/U ) .* ( 1 + 755.2 * ( f* Lw / U).^2) ./ ( ( 1 + 283.2 * ( f* Lw / U).^2 ).^(11/6) ) ;
 else
     fprintf('PSD type not implemented yet\n')
 end
@@ -79,7 +84,7 @@ Fse2_fun = @(f,U)   1/2 * rho * U^2 * B * [2*pi^3*h{4}(f)./(B*Vs(f)^2) h{3}(f) ;
 % Buffetting force
 A = @(f) 2 ./ (7 * f).^2 .* (7 * f - 1 + exp(-7 * f));
 X = @(f,U) ( 0.5 * rho * U * B ) * [2*pi; pi/2*B].*A(f) ;
-Sq = @(f,U) X(f,U) * Sw(f,U) * X(f,U)';
+Sq = @(f,U) X(f*B/U,U) * Sw(f,U) * X(f*B/U,U)';
 
 % Equivalent Stiffness/Damping/Mass Matrix
 Ceq_fun = @(f,U) ( C - Fse1_fun(f,U) ) ;
@@ -88,18 +93,29 @@ Meq = M ;
 Meqm1 = Meq\eye(2) ;
 
 % FRF Matrix
-HM1 = @(f,U) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * Ceq_fun(f,U) + Keq_fun(f,U)) ;
+HM1 = @(f,U) (-M * (2 * pi * f).^2 + 1i * 2 * pi * f * Ceq_fun(f*B/U,U) + Keq_fun(f*B/U,U)) ;
 
 %% LOOP ON AVG Wind speeds
 tol = 1e-4 ;
 
+if plotFRF 
+    fig3 = figure ;         
+    subplot(1,2,1)
+    hold on
+    grid on 
+    subplot(1,2,2)
+    hold on 
+    grid on 
+end
 
-if plotPSD
-    fig1 = figure ;  hold on ;
+if plotPSD 
+    fig1 = figure ;         
 end
 
 freqSto = zeros( 2, length(U_mat ) ) ;
 xiSto   = zeros( 2, length(U_mat) ) ;
+strings = cell(NbPlots,1) ;
+plotcounter = 1 ; indexPlot = round( linspace(1,nUvalues,NbPlots) ) ;
 
 for looper = 1 : length(U_mat )
     
@@ -141,60 +157,104 @@ for looper = 1 : length(U_mat )
     end
    
     % PSD
-    fs_vec = linspace(0.001, 3, 100); % [Hz]    
-    for i = 1 : length( fs_vec ) 
-        fs = fs_vec(i) ;
+    f_vec = linspace(0.001, 0.5, 200); % [Hz]    
+    for i = 1 : length( f_vec ) 
+        f = f_vec(i) ;
+        fs = f * B/uliege ;
         Keq = Keq_fun( fs, uliege ) ;
         Ceq = Ceq_fun( fs, uliege ) ;
         [phi,e] = polyeig(Keq,1i*Ceq,-Meq) ; 
         [~,ind] = min( abs( e - 2*pi*freqSto(:,looper).' ) ) ;
         phi = phi( : , ind(1,:) ) ;
-        H(:,:) = HM1(fs, uliege)\eye(2);
-        Sx.mod(:, :, i) = H * Sq(fs, uliege) * H' ;
+        H(:,:) = HM1( f, uliege)\eye(2);
+        Sx.mod(:, :, i) = H * Sq(f, uliege) * H' ;
         Sx.nod(:, :, i) =  phi * Sx.mod(:, :, i) * phi.' ;
         HH(:,:,i) = H ;
         Sx.mod = real( Sx.mod ) ;
         Sx.nod = real( Sx.nod ) ;
     end
-    stdvalues.nod1(looper,:) = sqrt( trapz( fs_vec, squeeze(Sx.mod(1,1,:)) ).' ) ;
-    stdvalues.nod2(looper,:) = sqrt( trapz( fs_vec, squeeze(Sx.mod(2,2,:)) ).' ) ;
+    stdvalues.nod1(looper,:) = sqrt( trapz( f_vec, squeeze(Sx.nod(1,1,:)) ).' ) ;
+    stdvalues.nod2(looper,:) = sqrt( trapz( f_vec, squeeze(Sx.nod(2,2,:)) ).' ) ;
     
     %% Graphical Representation
-    if plotPSD
+    
+    if looper == indexPlot( plotcounter ) 
+
+        strings{plotcounter} = sprintf('U=%3.2f [m/s]',uliege) ;
+
         % Plot of Nodal PSDs
-        figure(fig1) ;
-        strings = cell(size(Sx.mod,1)*size(Sx.mod,2),1) ;
-        for i = 1 : size( Sx.mod, 1) 
-            for j = 1 : size( Sx.mod, 2) 
-                semilogy( fs, squeeze(Sx.mod(i,j,:)),'LineWidth',1.5 )
-                hold on 
-                index = sub2ind([size(Sx.mod,1), size(Sx.mod,2)],i,j) ;
-                strings{index} = sprintf('Sx: i=%d, j=%d',i,j) ;
-            end
+        if plotPSD
+            figure(fig1) ;
+            subplot(1,2,1)
+            semilogy( f_vec, squeeze(Sx.mod(1,1,:)),'LineWidth',1.5 )
+            hold on
+            grid on 
+            subplot(1,2,2)
+            semilogy( f_vec, squeeze(Sx.mod(2,2,:)),'LineWidth',1.5 )
+            hold on
+            grid on 
         end
+
+        % Plot of FRF
+        if plotFRF
+            figure(fig3)
+            subplot(1,2,1)
+            plot (f_vec,abs(squeeze( HH(1,1,:)))) 
+            subplot(1,2,2)
+            plot (f_vec,abs(squeeze( HH(2,2,:))))
+        end
+
+        plotcounter = plotcounter + 1 ;
+        
     end
 
 end
 
-figure
-plot (fs_vec, abs(squeeze(HH(1,1,:))) ) 
+% semilogy (f_vec, (squeeze( Sx.nod(1,1,:))) ) 
+% semilogy (f_vec, (squeeze( Sx.nod(2,2,:))) ) 
+% plot(f_vec, abs(squeeze( HH(1,1,:))) ) 
+
+
 %% Graphical post-processing
 
-% Annotation of fig1
+% Annotation of fig PSDs
 if plotPSD
     figure(fig1) ; grid on
-    % legend(strings, 'interpreter','latex')
+    subplot(1,2,1)
+    legend(strings, 'interpreter','latex')
+    title('Modal PSD $S_{1,1}(\omega)$','interpreter','latex')
     xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
     ylabel('PSD [m$^2$/s$^3$]', 'FontSize',12, 'interpreter','latex')
+    subplot(1,2,2)
+    title('Modal PSD $S_{2,2}(\omega)$','interpreter','latex')
+    legend(strings, 'interpreter','latex')
+    xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
+    ylabel('PSD [m$^2$/s$^3$]', 'FontSize',12, 'interpreter','latex')
+end
+
+% Annotation of fig FRFs
+if plotFRF
+    figure(fig3) ; grid on
+    subplot(1,2,1)
+    legend(strings, 'interpreter','latex')
+    xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
+    ylabel('FRF $H(\omega)$ [s$^2$.kg$^{-1}$]', 'FontSize',12, 'interpreter','latex')
+    subplot(1,2,2)
+    legend(strings, 'interpreter','latex')
+    xlabel('Frequences [Hz]', 'FontSize',12, 'interpreter','latex')
+    ylabel('FRF $H(\omega)$ [s$^2$.kg$^{-1}$]', 'FontSize',12, 'interpreter','latex')
 end
     
 
 % Annotation of fig2
 if plotfrq
-    fig2 = figure ; grid on ; hold on
-    plot( U_mat, freqSto(1,:), '*-' )
-    plot( U_mat, freqSto(2,:), '*-' )  
-    legend({'Mode 1','Mode 2'}, 'interpreter','latex','FontSize',12)
+    fig2 = figure ;
+    grid on ; hold on
+    plot(  freqSto(1,:), '*-' )
+    plot(  freqSto(2,:), '*-' )  
+    plot(  xiSto(1,:), 'o-' )
+    plot(  xiSto(2,:), 'o-' )
+    legend({'$\omega_1$','$\omega_2$','$\xi_1$','$\xi_2$'}, 'interpreter','latex','FontSize',12)
     xlabel('Avg. Wind Speed $U$ [m/s]', 'FontSize',12, 'interpreter','latex')
     ylabel('Eigen Frequencies $f_i$ [Hz]', 'FontSize',12, 'interpreter','latex')
     ylim([0 0.30])
@@ -220,6 +280,13 @@ end
 
 % Plot of flutter derivatives h_i and a_i
 if plotfde
+    fs = linspace( 0, 5, 200) ;
+    for kk = 1:length(fs)
+        for k = 1:length(a)
+            aa(k,kk) = a{k}(fs(kk));
+            hh(k,kk) = h{k}(fs(kk));
+        end
+    end
     figure 
     subplot(2,1,1)
     for jj = 1:size(hh,1)
